@@ -3,15 +3,19 @@ package ru.mirea.project.controllers;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ru.mirea.project.dto.CarBulkRequest;
+import ru.mirea.project.dto.CarBulkResponse;
 import ru.mirea.project.dto.CarRequest;
 import ru.mirea.project.dto.CarResponse;
 import ru.mirea.project.enums.CarBodyType;
 import ru.mirea.project.enums.CarStatus;
+import ru.mirea.project.enums.CarTransmission;
 import ru.mirea.project.models.Car;
 import ru.mirea.project.services.CarService;
 
@@ -25,51 +29,20 @@ public class CarController {
     private final CarService carService;
 
     @GetMapping
-    public List<CarResponse> findAll(
-            @RequestParam(name="status", required = false) CarStatus status,
-            @RequestParam(name="bodyType", required = false) CarBodyType bodyType
+    public Page<CarResponse> findAll(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) CarStatus status,
+            @RequestParam(required = false) CarBodyType bodyType,
+            @RequestParam(required = false) CarTransmission transmission,
+            @RequestParam(defaultValue = "false") boolean archived,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "brand,asc") String sort
     ) {
-        List<Car> cars;
-
-        if (status == null && bodyType == null) {
-            cars = carService.findAll();
-        } else if (status == null) {
-            cars = carService.filterByBodyType(bodyType);
-        } else if (bodyType == null) {
-            cars = carService.filterByStatus(status);
-        } else {
-            cars = carService.filterByStatusAndBodyType(status, bodyType);
-        }
-
-        return cars.stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    @GetMapping("/sort")
-    public List<CarResponse> sortCars(
-            @RequestParam(name="by", required = true) String by
-    ) {
-        List<Car> cars;
-
-        switch (by) {
-            case "year":
-                cars = carService.sortByYear();
-                break;
-
-            case "mileage":
-                cars = carService.sortByMileage();
-                break;
-
-            default:
-                throw new IllegalArgumentException(
-                        "Недопустимое поле сортировки: " + by
-                );
-        }
-
-        return cars.stream()
-                .map(this::toResponse)
-                .toList();
+        return carService.searchCars(
+                search, status, bodyType, transmission,
+                archived, page, size, sort
+        ).map(this::toResponse);
     }
 
     @GetMapping("/all")
@@ -85,45 +58,6 @@ public class CarController {
         Car car = carService.getCarById(id);
 
         return toResponse(car);
-    }
-
-    @GetMapping("/search")
-    public List<CarResponse> searchCars(
-            @RequestParam(name = "by") String by,
-            @RequestParam(name = "value") String value
-    ) {
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Значение поиска не может быть пустым."
-            );
-        }
-
-        List<Car> cars;
-
-        switch (by) {
-            case "brand":
-                cars = carService.findByBrand(value);
-                break;
-
-            case "model":
-                cars = carService.findByModel(value);
-                break;
-
-            case "licensePlate":
-                cars = carService.findByLicensePlate(value)
-                        .map(List::of)
-                        .orElseGet(List::of);
-                break;
-
-            default:
-                throw new IllegalArgumentException(
-                        "Недопустимое поле поиска: " + by
-                );
-        }
-
-        return cars.stream()
-                .map(this::toResponse)
-                .toList();
     }
 
     @PostMapping
@@ -166,7 +100,14 @@ public class CarController {
     }
 
     @GetMapping("/export")
-    public ResponseEntity<String> exportCars() {
+    public ResponseEntity<String> exportCars(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) CarStatus status,
+            @RequestParam(required = false) CarBodyType bodyType,
+            @RequestParam(required = false) CarTransmission transmission,
+            @RequestParam(defaultValue = "false") boolean archived,
+            @RequestParam(defaultValue = "brand,asc") String sort
+    ) {
         return ResponseEntity.ok()
                 .header(
                         HttpHeaders.CONTENT_DISPOSITION,
@@ -175,7 +116,10 @@ public class CarController {
                 .contentType(
                         MediaType.parseMediaType("text/csv; charset=UTF-8")
                 )
-                .body(carService.exportCarsToCsv());
+                .body(carService.exportCarsToCsv(
+                        search, status, bodyType,
+                        transmission, archived, sort
+                ));
     }
 
     @GetMapping("/statistics")
@@ -195,6 +139,13 @@ public class CarController {
                 request.status(),
                 request.mileage()
         );
+    }
+
+    @PostMapping("/bulk")
+    public CarBulkResponse bulkCars(
+            @Valid @RequestBody CarBulkRequest request
+    ) {
+        return carService.bulkCars(request);
     }
 
     private CarResponse toResponse(Car car) {
