@@ -1,19 +1,24 @@
 package ru.mirea.project.services;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.mirea.project.dto.CarBulkRequest;
+import ru.mirea.project.dto.CarBulkResponse;
 import ru.mirea.project.enums.CarBodyType;
+import ru.mirea.project.enums.CarBulkOperation;
 import ru.mirea.project.enums.CarStatus;
 import ru.mirea.project.enums.CarTransmission;
 import ru.mirea.project.exceptions.DuplicateLicensePlateException;
 import ru.mirea.project.models.Car;
 import ru.mirea.project.repositories.CarRepository;
 
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +26,94 @@ import java.util.Optional;
 public class CarService {
 
     private final CarRepository carRepository;
+
+    private static final Set<String> SORT_FIELDS = Set.of(
+            "id", "brand", "model", "year", "mileage",
+            "licensePlate", "status", "bodyType", "transmission"
+    );
+
+    public Page<Car> searchCars(
+            String search,
+            CarStatus status,
+            CarBodyType bodyType,
+            CarTransmission transmission,
+            boolean archived,
+            int page,
+            int size,
+            String sort
+    ) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new IllegalArgumentException(
+                    "Номер страницы должен быть >= 0, размер - от 1 до 100."
+            );
+        }
+
+        String[] parts = sort.split(",", -1);
+
+        if (parts.length != 2) {
+            throw new IllegalArgumentException(
+                    "Формат сортировки: поле,направление."
+            );
+        }
+
+        String sortBy = parts[0].trim();
+        String direction = parts[1].trim();
+
+        if (!SORT_FIELDS.contains(sortBy)) {
+            throw new IllegalArgumentException(
+                    "Недопустимое поле сортировки: " + sortBy
+            );
+        }
+
+        if (!direction.equalsIgnoreCase("asc")
+                && !direction.equalsIgnoreCase("desc")) {
+            throw new IllegalArgumentException(
+                    "Направление сортировки: asc или desc."
+            );
+        }
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.fromString(direction), sortBy)
+        );
+
+        Specification<Car> spec = (root, query, cb) ->
+                archived
+                        ? cb.isNotNull(root.get("deletedAt"))
+                        : cb.isNull(root.get("deletedAt"));
+
+        if (search != null && !search.isBlank()) {
+            String value = "%" + search.trim()
+                    .toLowerCase(Locale.ROOT)
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_") + "%";
+
+            spec = spec.and((root, query, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("brand")), value, '\\'),
+                    cb.like(cb.lower(root.get("model")), value, '\\'),
+                    cb.like(cb.lower(root.get("licensePlate")), value, '\\')
+            ));
+        }
+
+        if (status != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.equal(root.get("status"), status));
+        }
+
+        if (bodyType != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.equal(root.get("bodyType"), bodyType));
+        }
+
+        if (transmission != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.equal(root.get("transmission"), transmission));
+        }
+
+        return carRepository.findAll(spec, pageable);
+    }
 
     @Transactional
     public Car createCar(Car car) {
@@ -37,7 +130,9 @@ public class CarService {
         }
 
         if (carRepository.findByLicensePlateIgnoreCase(car.getLicensePlate()).isPresent()) {
-            throw new IllegalArgumentException("Автомобиль с таким номером уже зарегистрирован.");
+            throw new DuplicateLicensePlateException(
+                    "Автомобиль с таким госномером уже зарегистрирован."
+            );
         }
 
         return carRepository.save(car);
@@ -57,52 +152,6 @@ public class CarService {
                         "Автомобиль с ID " + id + " не найден."
                 ));
     }
-
-    public Optional<Car> findByLicensePlate(String licensePlate) {
-        return carRepository.findByLicensePlateIgnoreCaseAndDeletedAtIsNull(licensePlate);
-    }
-
-    public List<Car> findByBrand(String brand) {
-        return carRepository.findByBrandContainingIgnoreCaseAndDeletedAtIsNull(brand);
-    }
-
-    public List<Car> findByModel(String model) {
-        return carRepository.findByModelContainingIgnoreCaseAndDeletedAtIsNull(model);
-    }
-
-    public List<Car> filterByStatus(CarStatus status) {
-        return carRepository.findByStatusAndDeletedAtIsNull(status);
-    }
-
-    public List<Car> filterByBodyType(CarBodyType bodyType) {
-        return carRepository.findByBodyTypeAndDeletedAtIsNull(bodyType);
-    }
-
-    public List<Car> filterByStatusAndBodyType(
-            CarStatus status,
-            CarBodyType bodyType
-    ) {
-        return carRepository.findByStatusAndBodyTypeAndDeletedAtIsNull(
-                status, bodyType
-        );
-    }
-
-    public List<Car> filterByTransmission(CarTransmission transmission) {
-        return carRepository.findByTransmissionAndDeletedAtIsNull(transmission);
-    }
-
-    public List<Car> sortByYear() {
-        return carRepository.findAllByDeletedAtIsNull(
-                Sort.by("year")
-        );
-    }
-
-    public List<Car> sortByMileage() {
-        return carRepository.findAllByDeletedAtIsNull(
-                Sort.by("mileage")
-        );
-    }
-
 
     @Transactional
     public Car updateCar(Long id, Car data) {
@@ -164,8 +213,92 @@ public class CarService {
         car.restore();
     }
 
-    public String exportCarsToCsv() {
-        List<Car> cars = findAll();
+    @Transactional
+    public CarBulkResponse bulkCars(CarBulkRequest request) {
+
+        if (request.operation() == CarBulkOperation.CHANGE_STATUS
+                && request.status() == null) {
+            throw new IllegalArgumentException(
+                    "Для изменения статуса необходимо указать status."
+            );
+        }
+
+        List<Long> successfulIds = new ArrayList<>();
+        List<CarBulkResponse.Failure> errors = new ArrayList<>();
+
+        for (Long id : new LinkedHashSet<>(request.ids())) {
+
+            Optional<Car> optionalCar = carRepository.findById(id);
+
+            if (optionalCar.isEmpty()) {
+                errors.add(new CarBulkResponse.Failure(
+                        id, "Автомобиль не найден."
+                ));
+                continue;
+            }
+
+            Car car = optionalCar.get();
+            String error = null;
+
+            switch (request.operation()) {
+                case CHANGE_STATUS -> {
+                    if (car.getDeletedAt() != null) {
+                        error = "Автомобиль находится в архиве.";
+                    } else {
+                        car.setStatus(request.status());
+                    }
+                }
+
+                case ARCHIVE -> {
+                    if (car.getDeletedAt() != null) {
+                        error = "Автомобиль уже архивирован.";
+                    } else {
+                        car.archive();
+                    }
+                }
+
+                case RESTORE -> {
+                    if (car.getDeletedAt() == null) {
+                        error = "Автомобиль не находится в архиве.";
+                    } else {
+                        car.restore();
+                    }
+                }
+            }
+
+            if (error == null) {
+                successfulIds.add(id);
+            } else {
+                errors.add(new CarBulkResponse.Failure(id, error));
+            }
+        }
+
+        return new CarBulkResponse(successfulIds, errors);
+    }
+
+    public String exportCarsToCsv(
+            String search,
+            CarStatus status,
+            CarBodyType bodyType,
+            CarTransmission transmission,
+            boolean archived,
+            String sort
+    ) {
+        List<Car> cars = new ArrayList<>();
+
+        int page = 0;
+        Page<Car> result;
+
+        do {
+            result = searchCars(
+                    search, status, bodyType, transmission,
+                    archived, page, 100, sort
+            );
+
+            cars.addAll(result.getContent());
+            page++;
+
+        } while (result.hasNext());
 
         StringBuilder csv = new StringBuilder();
 
