@@ -111,6 +111,18 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(DuplicateLicensePlateException.class)
+    public ResponseEntity<ApiError> handleDuplicateLicensePlate(
+            DuplicateLicensePlateException exception,
+            HttpServletRequest request
+    ) {
+        return buildError(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                request
+        );
+    }
+
     private ResponseEntity<ApiError> buildError(
             HttpStatus status,
             String message,
