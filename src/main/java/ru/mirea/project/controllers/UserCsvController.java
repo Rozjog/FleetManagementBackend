@@ -1,3 +1,4 @@
+
 package ru.mirea.project.controllers;
 
 import org.springframework.http.HttpHeaders;
@@ -26,6 +27,18 @@ public class UserCsvController {
         this.userCsvExportService = userCsvExportService;
     }
 
+    // Предварительная проверка CSV
+    @PostMapping(
+            value = "/import/validate",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public Map<String, Object> validateImport(
+            @RequestParam("file") MultipartFile file
+    ) {
+        return userCsvService.validateUsers(file);
+    }
+
+    // Импорт пользователей
     @PostMapping(
             value = "/import",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
@@ -37,7 +50,11 @@ public class UserCsvController {
         return Map.of("imported", imported);
     }
 
-    @GetMapping(value = "/export", produces = "text/csv")
+    // Экспорт пользователей
+    @GetMapping(
+            value = "/export",
+            produces = "text/csv"
+    )
     public ResponseEntity<byte[]> exportUsers(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) UserStatus status
@@ -53,7 +70,9 @@ public class UserCsvController {
                         "attachment; filename=\"users.csv\""
                 )
                 .contentType(
-                        MediaType.parseMediaType("text/csv;charset=UTF-8")
+                        MediaType.parseMediaType(
+                                "text/csv;charset=UTF-8"
+                        )
                 )
                 .body(csv);
     }

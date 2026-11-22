@@ -25,7 +25,7 @@ public class UserService {
 
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
             "id", "firstName", "lastName", "phone",
-            "email", "driverLicense", "status"
+            "email", "driverLicense", "status", "archived"
     );
 
     public UserService(UserRepository userRepository) {
@@ -54,6 +54,21 @@ public class UserService {
             int size,
             String sortBy,
             String direction
+    ) {
+        return searchUsers(
+                search, status, page, size,
+                sortBy, direction, false
+        );
+    }
+
+    public Page<User> searchUsers(
+            String search,
+            UserStatus status,
+            int page,
+            int size,
+            String sortBy,
+            String direction,
+            boolean archived
     ) {
         if (page < 0) {
             throw new IllegalArgumentException(
@@ -90,7 +105,8 @@ public class UserService {
         );
 
         Specification<User> specification =
-                (root, query, cb) -> cb.conjunction();
+                (root, query, cb) ->
+                        cb.equal(root.get("archived"), archived);
 
         if (search != null && !search.isBlank()) {
             String value = "%" +
@@ -132,8 +148,7 @@ public class UserService {
         return userRepository.findAll(specification, pageable);
     }
 
-    @Transactional
-    public User createUser(User user) {
+    public void validateForCreation(User user) {
         if (user == null) {
             throw new IllegalArgumentException(
                     "Данные пользователя отсутствуют."
@@ -167,9 +182,14 @@ public class UserService {
                     "Пользователь с таким удостоверением уже существует."
             );
         }
+    }
 
+    @Transactional
+    public User createUser(User user) {
+        validateForCreation(user);
         return userRepository.save(user);
     }
+
 
     @Transactional
     public User updateUser(Long id, User data) {
@@ -217,9 +237,22 @@ public class UserService {
     }
 
     @Transactional
-    public void deleteUser(Long id) {
+    public User archiveUser(Long id) {
         User user = getUserById(id);
-        userRepository.delete(user);
+        user.setArchived(true);
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public User restoreUser(Long id) {
+        User user = getUserById(id);
+        user.setArchived(false);
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public void deleteUser(Long id) {
+        archiveUser(id);
     }
 
     private void validateUser(User user) {
@@ -259,7 +292,9 @@ public class UserService {
         if (!email.isEmpty() &&
                 (email.length() > 255 ||
                         !email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))) {
-            throw new IllegalArgumentException("Некорректный email.");
+            throw new IllegalArgumentException(
+                    "Некорректный email."
+            );
         }
 
         if (!license.isEmpty() && !license.matches("\\d{10}")) {
