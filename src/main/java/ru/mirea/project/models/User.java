@@ -1,3 +1,4 @@
+
 package ru.mirea.project.models;
 
 import jakarta.persistence.*;
@@ -30,6 +31,9 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private UserStatus status = UserStatus.REGULAR;
+
+    @Column(name = "archived", nullable = false)
+    private boolean archived = false;
 
     public User() {
     }
@@ -88,5 +92,13 @@ public class User {
 
     public void setStatus(UserStatus status) {
         this.status = status;
+    }
+
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
     }
 }

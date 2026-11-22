@@ -24,6 +24,7 @@ public class UserController {
     public Page<User> getAllUsers(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) UserStatus status,
+            @RequestParam(defaultValue = "false") boolean archived,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "lastName,asc") String sort
@@ -42,7 +43,8 @@ public class UserController {
                 page,
                 size,
                 sortParts[0].trim(),
-                sortParts[1].trim()
+                sortParts[1].trim(),
+                archived
         );
     }
 
@@ -68,6 +70,16 @@ public class UserController {
             @Valid @RequestBody UserRequest request
     ) {
         return userService.updateUser(id, toUser(request));
+    }
+
+    @PatchMapping("/{id}/archive")
+    public User archiveUser(@PathVariable Long id) {
+        return userService.archiveUser(id);
+    }
+
+    @PatchMapping("/{id}/restore")
+    public User restoreUser(@PathVariable Long id) {
+        return userService.restoreUser(id);
     }
 
     @DeleteMapping("/{id}")
