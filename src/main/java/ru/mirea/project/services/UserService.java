@@ -1,5 +1,10 @@
 package ru.mirea.project.services;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.mirea.project.enums.UserStatus;
@@ -10,12 +15,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
 public class UserService {
 
     private final UserRepository userRepository;
+
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "id", "firstName", "lastName", "phone",
+            "email", "driverLicense", "status"
+    );
 
     public UserService(UserRepository userRepository) {
         this.userRepository = userRepository;
@@ -36,10 +47,97 @@ public class UserService {
         return userRepository.findByStatus(status);
     }
 
+    public Page<User> searchUsers(
+            String search,
+            UserStatus status,
+            int page,
+            int size,
+            String sortBy,
+            String direction
+    ) {
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Номер страницы не может быть отрицательным."
+            );
+        }
+
+        if (size < 1 || size > 100) {
+            throw new IllegalArgumentException(
+                    "Размер страницы должен быть от 1 до 100."
+            );
+        }
+
+        if (!ALLOWED_SORT_FIELDS.contains(sortBy)) {
+            throw new IllegalArgumentException(
+                    "Недопустимое поле сортировки: " + sortBy
+            );
+        }
+
+        if (!direction.equalsIgnoreCase("asc")
+                && !direction.equalsIgnoreCase("desc")) {
+            throw new IllegalArgumentException(
+                    "Направление сортировки: asc или desc."
+            );
+        }
+
+        Sort.Direction sortDirection =
+                Sort.Direction.fromString(direction);
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(sortDirection, sortBy)
+        );
+
+        Specification<User> specification =
+                (root, query, cb) -> cb.conjunction();
+
+        if (search != null && !search.isBlank()) {
+            String value = "%" +
+                    search.trim().toLowerCase(Locale.ROOT)
+                            .replace("\\", "\\\\")
+                            .replace("%", "\\%")
+                            .replace("_", "\\_")
+                    + "%";
+
+            specification = specification.and(
+                    (root, query, cb) -> cb.or(
+                            cb.like(
+                                    cb.lower(root.get("firstName")),
+                                    value, '\\'
+                            ),
+                            cb.like(
+                                    cb.lower(root.get("lastName")),
+                                    value, '\\'
+                            ),
+                            cb.like(
+                                    cb.lower(root.get("phone")),
+                                    value, '\\'
+                            ),
+                            cb.like(
+                                    cb.lower(root.get("email")),
+                                    value, '\\'
+                            )
+                    )
+            );
+        }
+
+        if (status != null) {
+            specification = specification.and(
+                    (root, query, cb) ->
+                            cb.equal(root.get("status"), status)
+            );
+        }
+
+        return userRepository.findAll(specification, pageable);
+    }
+
     @Transactional
     public User createUser(User user) {
         if (user == null) {
-            throw new IllegalArgumentException("Данные пользователя отсутствуют.");
+            throw new IllegalArgumentException(
+                    "Данные пользователя отсутствуют."
+            );
         }
 
         if (user.getId() != null) {
@@ -78,7 +176,9 @@ public class UserService {
         User user = getUserById(id);
 
         if (data == null) {
-            throw new IllegalArgumentException("Данные пользователя отсутствуют.");
+            throw new IllegalArgumentException(
+                    "Данные пользователя отсутствуют."
+            );
         }
 
         validateUser(data);
@@ -139,11 +239,15 @@ public class UserService {
                 ? "" : user.getDriverLicense().trim();
 
         if (firstName.isEmpty() || firstName.length() > 100) {
-            throw new IllegalArgumentException("Некорректное имя пользователя.");
+            throw new IllegalArgumentException(
+                    "Некорректное имя пользователя."
+            );
         }
 
         if (lastName.isEmpty() || lastName.length() > 100) {
-            throw new IllegalArgumentException("Некорректная фамилия пользователя.");
+            throw new IllegalArgumentException(
+                    "Некорректная фамилия пользователя."
+            );
         }
 
         if (!phone.matches("\\+7\\d{10}")) {

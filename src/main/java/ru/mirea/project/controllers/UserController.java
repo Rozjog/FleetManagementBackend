@@ -1,7 +1,7 @@
-
 package ru.mirea.project.controllers;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -9,8 +9,6 @@ import ru.mirea.project.dto.UserRequest;
 import ru.mirea.project.enums.UserStatus;
 import ru.mirea.project.models.User;
 import ru.mirea.project.services.UserService;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
@@ -23,15 +21,29 @@ public class UserController {
     }
 
     @GetMapping
-    public List<User> getAllUsers(
-            @RequestParam(name = "status", required = false)
-            UserStatus status
+    public Page<User> getAllUsers(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) UserStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "lastName,asc") String sort
     ) {
-        if (status != null) {
-            return userService.getUsersByStatus(status);
+        String[] sortParts = sort.split(",", -1);
+
+        if (sortParts.length != 2) {
+            throw new IllegalArgumentException(
+                    "Сортировка должна быть в формате: поле,направление."
+            );
         }
 
-        return userService.getAllUsers();
+        return userService.searchUsers(
+                search,
+                status,
+                page,
+                size,
+                sortParts[0].trim(),
+                sortParts[1].trim()
+        );
     }
 
     @GetMapping("/{id}")
@@ -43,8 +55,7 @@ public class UserController {
     public ResponseEntity<User> createUser(
             @Valid @RequestBody UserRequest request
     ) {
-        User user = toUser(request);
-        User createdUser = userService.createUser(user);
+        User createdUser = userService.createUser(toUser(request));
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
@@ -56,8 +67,7 @@ public class UserController {
             @PathVariable Long id,
             @Valid @RequestBody UserRequest request
     ) {
-        User user = toUser(request);
-        return userService.updateUser(id, user);
+        return userService.updateUser(id, toUser(request));
     }
 
     @DeleteMapping("/{id}")
