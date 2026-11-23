@@ -20,11 +20,11 @@ public class RentalRequest {
     @Column(name = "external_id", unique = true, length = 100)
     private String externalId;
 
-    @Column(name = "car_id")
-    private UUID carId;
+    @Column(name = "car_id", nullable = false)
+    private Long carId;
 
-    @Column(name = "user_id")
-    private UUID userId;
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
 
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
@@ -73,11 +73,12 @@ public class RentalRequest {
     public String getExternalId() { return externalId; }
     public void setExternalId(String externalId) { this.externalId = externalId; }
 
-    public UUID getCarId() { return carId; }
-    public void setCarId(UUID carId) { this.carId = carId; }
+    public Long getCarId() { return carId; }
+    public void setCarId(Long carId) { this.carId = carId; }
 
-    public UUID getUserId() { return userId; }
-    public void setUserId(UUID userId) { this.userId = userId; }
+    public Long getUserId() { return userId; }
+
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public LocalDate getStartDate() { return startDate; }
     public void setStartDate(LocalDate startDate) { this.startDate = startDate; }

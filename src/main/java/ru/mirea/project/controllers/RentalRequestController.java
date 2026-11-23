@@ -5,6 +5,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
 import ru.mirea.project.dto.RentalRequestCreateRequestDTO;
 import ru.mirea.project.dto.RentalRequestDTO;
 import ru.mirea.project.dto.RentalRequestUpdateRequestDTO;
@@ -52,13 +53,15 @@ public class RentalRequestController {
     }
 
     @PostMapping
-    public RentalRequestDTO create(@RequestBody RentalRequestCreateRequestDTO dto) {
+    public RentalRequestDTO create(
+            @Valid @RequestBody RentalRequestCreateRequestDTO dto) {
         return rentalRequestService.create(dto);
     }
 
     @PutMapping("/{id}")
-    public RentalRequestDTO update(@PathVariable UUID id,
-                                   @RequestBody RentalRequestUpdateRequestDTO dto) {
+    public RentalRequestDTO update(
+            @PathVariable UUID id,
+            @Valid @RequestBody RentalRequestUpdateRequestDTO dto) {
         return rentalRequestService.update(id, dto);
     }
 

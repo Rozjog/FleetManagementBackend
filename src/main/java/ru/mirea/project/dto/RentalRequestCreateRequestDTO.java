@@ -11,8 +11,12 @@ import java.util.UUID;
 public class RentalRequestCreateRequestDTO {
 
     private String externalId;
-    private UUID carId;
-    private UUID userId;
+
+    @NotNull
+    private Long carId;
+
+    @NotNull
+    private Long userId;
 
     @NotNull
     private LocalDate startDate;
@@ -31,11 +35,13 @@ public class RentalRequestCreateRequestDTO {
     public String getExternalId() { return externalId; }
     public void setExternalId(String externalId) { this.externalId = externalId; }
 
-    public UUID getCarId() { return carId; }
-    public void setCarId(UUID carId) { this.carId = carId; }
+    public Long getCarId() { return carId; }
 
-    public UUID getUserId() { return userId; }
-    public void setUserId(UUID userId) { this.userId = userId; }
+    public void setCarId(Long carId) { this.carId = carId; }
+
+    public Long getUserId() { return userId; }
+
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public LocalDate getStartDate() { return startDate; }
     public void setStartDate(LocalDate startDate) { this.startDate = startDate; }

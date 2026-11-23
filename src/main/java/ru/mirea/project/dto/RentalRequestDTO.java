@@ -10,8 +10,8 @@ import java.util.UUID;
 public class RentalRequestDTO {
 
     private UUID id;
-    private UUID carId;
-    private UUID userId;
+    private Long carId;
+    private Long userId;
     private LocalDate startDate;
     private LocalDate endDate;
     private Integer monthlyPrice;
@@ -25,11 +25,13 @@ public class RentalRequestDTO {
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
 
-    public UUID getCarId() { return carId; }
-    public void setCarId(UUID carId) { this.carId = carId; }
+    public Long getCarId() { return carId; }
 
-    public UUID getUserId() { return userId; }
-    public void setUserId(UUID userId) { this.userId = userId; }
+    public void setCarId(Long carId) { this.carId = carId; }
+
+    public Long getUserId() { return userId; }
+
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public LocalDate getStartDate() { return startDate; }
     public void setStartDate(LocalDate startDate) { this.startDate = startDate; }

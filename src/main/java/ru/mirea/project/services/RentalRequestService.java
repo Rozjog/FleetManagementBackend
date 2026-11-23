@@ -11,9 +11,7 @@ import ru.mirea.project.dto.RentalRequestDTO;
 import ru.mirea.project.dto.RentalRequestUpdateRequestDTO;
 import ru.mirea.project.enums.Priority;
 import ru.mirea.project.enums.RequestStatus;
-import ru.mirea.project.models.AuditLog;
 import ru.mirea.project.models.RentalRequest;
-import ru.mirea.project.repositories.AuditLogRepository;
 import ru.mirea.project.repositories.RentalRequestRepository;
 
 import java.io.BufferedReader;
@@ -31,12 +29,9 @@ import java.util.stream.Collectors;
 public class RentalRequestService {
 
     private final RentalRequestRepository repository;
-    private final AuditLogRepository auditLogRepository;
 
-    public RentalRequestService(RentalRequestRepository repository,
-                                AuditLogRepository auditLogRepository) {
+    public RentalRequestService(RentalRequestRepository repository) {
         this.repository = repository;
-        this.auditLogRepository = auditLogRepository;
     }
 
     @Transactional(readOnly = true)
@@ -88,7 +83,6 @@ public class RentalRequestService {
         entity.setUpdatedAt(OffsetDateTime.now());
 
         RentalRequest saved = repository.save(entity);
-        auditLogRepository.save(new AuditLog("CREATE", "REQUEST", saved.getId(), "Создание заявки"));
         return toDto(saved);
     }
 
@@ -112,7 +106,6 @@ public class RentalRequestService {
         entity.setUpdatedAt(OffsetDateTime.now());
 
         RentalRequest saved = repository.save(entity);
-        auditLogRepository.save(new AuditLog("UPDATE", "REQUEST", saved.getId(), "Обновление заявки"));
         return toDto(saved);
     }
 
@@ -123,7 +116,6 @@ public class RentalRequestService {
         entity.setArchived(true);
         entity.setArchivedAt(OffsetDateTime.now());
         repository.save(entity);
-        auditLogRepository.save(new AuditLog("ARCHIVE", "REQUEST", id, "Архивация заявки"));
     }
 
     @Transactional
@@ -133,7 +125,6 @@ public class RentalRequestService {
         entity.setArchived(false);
         entity.setArchivedAt(null);
         repository.save(entity);
-        auditLogRepository.save(new AuditLog("RESTORE", "REQUEST", id, "Восстановление заявки"));
     }
 
     @Transactional
@@ -200,12 +191,13 @@ public class RentalRequestService {
 
                 RentalRequest request = new RentalRequest();
                 request.setExternalId(parts[0].trim());
-                request.setUserId(UUID.fromString(parts[1].trim()));
-                request.setCarId(UUID.fromString(parts[2].trim()));
+                request.setUserId(Long.parseLong(parts[1].trim()));
+                request.setCarId(Long.parseLong(parts[2].trim()));
                 request.setStartDate(LocalDate.parse(parts[3].trim()));
                 request.setEndDate(LocalDate.parse(parts[4].trim()));
                 request.setMonthlyPrice(Integer.parseInt(parts[5].trim()));
                 request.setStatus(RequestStatus.NEW);
+                request.setPriority(Priority.NORMAL);
                 request.setNotes(parts.length > 6 ? parts[6].trim() : null);
                 request.setCreatedAt(OffsetDateTime.now());
                 request.setUpdatedAt(OffsetDateTime.now());
@@ -213,7 +205,6 @@ public class RentalRequestService {
                 request.setIsLongTerm(true);
 
                 RentalRequest saved = repository.save(request);
-                auditLogRepository.save(new AuditLog("CREATE", "REQUEST", saved.getId(), "Импорт из CSV"));
                 count++;
             }
         } catch (Exception e) {
