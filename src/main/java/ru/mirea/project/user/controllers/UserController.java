@@ -1,11 +1,12 @@
 package ru.mirea.project.user.controllers;
-
+import ru.mirea.project.user.dto.UserAnalyticsResponse;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.mirea.project.user.dto.UserRequest;
+import ru.mirea.project.user.dto.UserResponse;
 import ru.mirea.project.user.enums.UserStatus;
 import ru.mirea.project.user.models.User;
 import ru.mirea.project.user.services.UserService;
@@ -21,7 +22,7 @@ public class UserController {
     }
 
     @GetMapping
-    public Page<User> getAllUsers(
+    public Page<UserResponse> getAllUsers(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) UserStatus status,
             @RequestParam(defaultValue = "false") boolean archived,
@@ -45,47 +46,54 @@ public class UserController {
                 sortParts[0].trim(),
                 sortParts[1].trim(),
                 archived
-        );
+        ).map(this::toResponse);
     }
 
     @GetMapping("/{id}")
-    public User getUserById(@PathVariable Long id) {
-        return userService.getUserById(id);
+    public UserResponse getUserById(@PathVariable Long id) {
+        return toResponse(userService.getUserById(id));
     }
 
     @PostMapping
-    public ResponseEntity<User> createUser(
+    public ResponseEntity<UserResponse> createUser(
             @Valid @RequestBody UserRequest request
     ) {
         User createdUser = userService.createUser(toUser(request));
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(createdUser);
+                .body(toResponse(createdUser));
     }
 
     @PutMapping("/{id}")
-    public User updateUser(
+    public UserResponse updateUser(
             @PathVariable Long id,
             @Valid @RequestBody UserRequest request
     ) {
-        return userService.updateUser(id, toUser(request));
+        return toResponse(
+                userService.updateUser(id, toUser(request))
+        );
     }
 
     @PatchMapping("/{id}/archive")
-    public User archiveUser(@PathVariable Long id) {
-        return userService.archiveUser(id);
+    public UserResponse archiveUser(@PathVariable Long id) {
+        return toResponse(userService.archiveUser(id));
     }
 
     @PatchMapping("/{id}/restore")
-    public User restoreUser(@PathVariable Long id) {
-        return userService.restoreUser(id);
+    public UserResponse restoreUser(@PathVariable Long id) {
+        return toResponse(userService.restoreUser(id));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);
+    }
+
+    @GetMapping("/analytics")
+    public UserAnalyticsResponse getAnalytics() {
+        return userService.getAnalytics();
     }
 
     private User toUser(UserRequest request) {
@@ -99,5 +107,18 @@ public class UserController {
         user.setStatus(request.status());
 
         return user;
+    }
+
+    private UserResponse toResponse(User user) {
+        return new UserResponse(
+                user.getId(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getPhone(),
+                user.getEmail(),
+                user.getDriverLicense(),
+                user.getStatus(),
+                user.isArchived()
+        );
     }
 }

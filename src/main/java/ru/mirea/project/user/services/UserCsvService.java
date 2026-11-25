@@ -6,6 +6,7 @@ import org.apache.commons.csv.CSVRecord;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import ru.mirea.project.user.enums.UserImportMode;
 import ru.mirea.project.user.enums.UserStatus;
 import ru.mirea.project.user.models.User;
 
@@ -14,17 +15,22 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 @Service
 public class UserCsvService {
 
     private static final List<String> HEADERS = List.of(
+            "firstName",
+            "lastName",
+            "phone",
+            "email",
+            "driverLicense",
+            "status"
+    );
+
+    private static final List<String> HEADERS_WITH_ID = List.of(
+            "id",
             "firstName",
             "lastName",
             "phone",
@@ -39,83 +45,169 @@ public class UserCsvService {
         this.userService = userService;
     }
 
-    public Map<String, Object> validateUsers(MultipartFile file) {
+    // Предварительная проверка CSV
+    public Map<String, Object> validateUsers(
+            MultipartFile file,
+            UserImportMode mode
+    ) {
+        ImportPlan plan = readAndValidate(file, mode);
 
+        return Map.of(
+                "valid", plan.errors().isEmpty(),
+                "totalRows", plan.totalRows(),
+                "validRows", plan.rows().size(),
+                "invalidRows", plan.totalRows() - plan.rows().size(),
+                "errors", plan.errors()
+        );
+    }
+
+    // Импорт CSV в PostgreSQL
+    @Transactional
+    public int importUsers(
+            MultipartFile file,
+            UserImportMode mode
+    ) {
+        ImportPlan plan = readAndValidate(file, mode);
+
+        if (!plan.errors().isEmpty()) {
+            throw new IllegalArgumentException(
+                    String.join("; ", plan.errors())
+            );
+        }
+
+        for (ImportRow row : plan.rows()) {
+            if (mode == UserImportMode.CREATE_ONLY) {
+                userService.createUser(row.user());
+            } else {
+                userService.updateUser(row.id(), row.user());
+            }
+        }
+
+        return plan.rows().size();
+    }
+
+    // Чтение и проверка всех записей CSV
+    private ImportPlan readAndValidate(
+            MultipartFile file,
+            UserImportMode mode
+    ) {
         validateFile(file);
 
+        Set<Long> ids = new HashSet<>();
         Set<String> phones = new HashSet<>();
         Set<String> emails = new HashSet<>();
         Set<String> licenses = new HashSet<>();
 
+        List<ImportRow> rows = new ArrayList<>();
         List<String> errors = new ArrayList<>();
 
         int totalRows = 0;
-        int validRows = 0;
 
         try (BufferedReader reader = createReader(file);
              CSVParser parser = createFormat().parse(reader)) {
 
-            if (!parser.getHeaderNames().equals(HEADERS)) {
+            List<String> headers = parser.getHeaderNames();
+
+            boolean hasId = headers.equals(HEADERS_WITH_ID);
+
+            if (mode == UserImportMode.UPDATE_BY_ID && !hasId) {
                 errors.add(
-                        "Неверные заголовки CSV. Ожидаются: " +
-                                String.join(",", HEADERS)
+                        "Для обновления необходим столбец id."
                 );
 
-                return validationResult(0, 0, errors);
+                return new ImportPlan(0, rows, errors);
+            }
+
+            if (!hasId && !headers.equals(HEADERS)) {
+                errors.add("Некорректные заголовки CSV.");
+
+                return new ImportPlan(0, rows, errors);
             }
 
             for (CSVRecord record : parser) {
 
                 totalRows++;
-                long row = record.getRecordNumber() + 1;
 
                 if (totalRows > 1000) {
-                    errors.add(
-                            "CSV-файл должен содержать не более 1000 пользователей."
+                    throw new IllegalArgumentException(
+                            "Максимум 1000 пользователей в CSV."
                     );
-                    break;
                 }
 
-                if (!record.isConsistent()) {
-                    errors.add(
-                            "Запись CSV №" + row +
-                                    ": неправильное количество полей."
-                    );
-                    continue;
-                }
+                long rowNumber = record.getRecordNumber() + 1;
 
                 try {
-                    User user = parseUser(record, row);
+                    if (!record.isConsistent()) {
+                        throw new IllegalArgumentException(
+                                "Неправильное количество полей."
+                        );
+                    }
+
+                    User user = parseUser(record);
+                    Long id = null;
+
+                    if (mode == UserImportMode.UPDATE_BY_ID) {
+
+                        id = parseId(record.get("id"));
+
+                        if (ids.contains(id)) {
+                            throw new IllegalArgumentException(
+                                    "Повторяется ID: " + id
+                            );
+                        }
+
+                        userService.validateForUpdate(id, user);
+
+                    } else {
+
+                        if (hasId && !record.get("id").isBlank()) {
+                            throw new IllegalArgumentException(
+                                    "При создании ID должен быть пустым."
+                            );
+                        }
+
+                        userService.validateForCreation(user);
+                    }
 
                     checkDuplicate(
                             phones,
-                            user.getPhone().trim(),
-                            "телефон",
-                            row
+                            user.getPhone(),
+                            "телефон"
                     );
 
                     checkDuplicate(
                             emails,
-                            user.getEmail().trim()
-                                    .toLowerCase(Locale.ROOT),
-                            "email",
-                            row
+                            user.getEmail(),
+                            "email"
                     );
 
                     checkDuplicate(
                             licenses,
-                            user.getDriverLicense().trim(),
-                            "водительское удостоверение",
-                            row
+                            user.getDriverLicense(),
+                            "водительское удостоверение"
                     );
 
-                    userService.validateForCreation(user);
+                    if (id != null) {
+                        ids.add(id);
+                    }
 
-                    validRows++;
+                    phones.add(user.getPhone());
 
-                } catch (IllegalArgumentException e) {
+                    if (user.getEmail() != null) {
+                        emails.add(user.getEmail());
+                    }
+
+                    if (user.getDriverLicense() != null) {
+                        licenses.add(user.getDriverLicense());
+                    }
+
+                    rows.add(new ImportRow(id, user));
+
+                } catch (IllegalArgumentException |
+                         NoSuchElementException e) {
+
                     errors.add(
-                            "Запись CSV №" + row +
+                            "Запись CSV №" + rowNumber +
                                     ": " + e.getMessage()
                     );
                 }
@@ -128,119 +220,79 @@ public class UserCsvService {
         }
 
         if (totalRows == 0) {
-            errors.add(
-                    "CSV-файл не содержит пользователей."
-            );
+            errors.add("CSV-файл не содержит пользователей.");
         }
 
-        return validationResult(
-                totalRows,
-                validRows,
-                errors
-        );
+        return new ImportPlan(totalRows, rows, errors);
     }
 
-    // Импорт пользователей в PostgreSQL
-    @Transactional
-    public int importUsers(MultipartFile file) {
+    // Преобразование строки CSV в объект User
+    private User parseUser(CSVRecord record) {
 
-        validateFile(file);
+        User user = new User();
 
-        Set<String> phones = new HashSet<>();
-        Set<String> emails = new HashSet<>();
-        Set<String> licenses = new HashSet<>();
+        user.setFirstName(record.get("firstName"));
+        user.setLastName(record.get("lastName"));
+        user.setPhone(record.get("phone"));
+        user.setEmail(record.get("email"));
+        user.setDriverLicense(record.get("driverLicense"));
 
-        int imported = 0;
+        String status = record.get("status").trim();
 
-        try (BufferedReader reader = createReader(file);
-             CSVParser parser = createFormat().parse(reader)) {
-
-            if (!parser.getHeaderNames().equals(HEADERS)) {
+        if (status.isEmpty()) {
+            user.setStatus(UserStatus.REGULAR);
+        } else {
+            try {
+                user.setStatus(
+                        UserStatus.valueOf(
+                                status.toUpperCase(Locale.ROOT)
+                        )
+                );
+            } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException(
-                        "Неверные заголовки CSV. Ожидаются: " +
-                                String.join(",", HEADERS)
+                        "Неизвестный статус: " + status
                 );
             }
-
-            for (CSVRecord record : parser) {
-
-                long row = record.getRecordNumber() + 1;
-
-                if (imported >= 1000) {
-                    throw new IllegalArgumentException(
-                            "За один раз можно импортировать максимум 1000 пользователей."
-                    );
-                }
-
-                if (!record.isConsistent()) {
-                    throw new IllegalArgumentException(
-                            "Запись CSV №" + row +
-                                    ": неправильное количество полей."
-                    );
-                }
-
-                User user;
-
-                try {
-                    user = parseUser(record, row);
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException(
-                            "Запись CSV №" + row +
-                                    ": " + e.getMessage(), e
-                    );
-                }
-
-                checkDuplicate(
-                        phones,
-                        user.getPhone().trim(),
-                        "телефон",
-                        row
-                );
-
-                checkDuplicate(
-                        emails,
-                        user.getEmail().trim()
-                                .toLowerCase(Locale.ROOT),
-                        "email",
-                        row
-                );
-
-                checkDuplicate(
-                        licenses,
-                        user.getDriverLicense().trim(),
-                        "водительское удостоверение",
-                        row
-                );
-
-                try {
-                    userService.createUser(user);
-
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException(
-                            "Запись CSV №" + row +
-                                    ": " + e.getMessage(), e
-                    );
-                }
-
-                imported++;
-            }
-
-        } catch (IOException | UncheckedIOException e) {
-            throw new IllegalArgumentException(
-                    "Ошибка чтения CSV-файла.", e
-            );
         }
 
-        if (imported == 0) {
-            throw new IllegalArgumentException(
-                    "CSV-файл не содержит пользователей."
-            );
-        }
-
-        return imported;
+        return user;
     }
 
-    // Проверка загруженного файла
+    // Проверка ID пользователя
+    private Long parseId(String value) {
+
+        try {
+            long id = Long.parseLong(value.trim());
+
+            if (id <= 0) {
+                throw new IllegalArgumentException(
+                        "ID должен быть положительным."
+                );
+            }
+
+            return id;
+
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Некорректный ID пользователя."
+            );
+        }
+    }
+
+    // Проверка дубликатов внутри CSV
+    private void checkDuplicate(
+            Set<String> values,
+            String value,
+            String field
+    ) {
+        if (value != null && values.contains(value)) {
+            throw new IllegalArgumentException(
+                    "Повторяется " + field + ": " + value
+            );
+        }
+    }
+
+    // Проверка файла
     private void validateFile(MultipartFile file) {
 
         if (file == null || file.isEmpty()) {
@@ -259,7 +311,7 @@ public class UserCsvService {
         }
     }
 
-    // Создание CSV-парсера
+    // Настройка CSV-парсера
     private CSVFormat createFormat() {
 
         return CSVFormat.DEFAULT.builder()
@@ -270,7 +322,7 @@ public class UserCsvService {
                 .get();
     }
 
-    // Чтение файла в UTF-8 с поддержкой BOM
+    // Чтение UTF-8 с поддержкой BOM
     private BufferedReader createReader(
             MultipartFile file
     ) throws IOException {
@@ -291,67 +343,14 @@ public class UserCsvService {
         return reader;
     }
 
-    // Преобразование строки CSV в пользователя
-    private User parseUser(
-            CSVRecord record,
-            long row
-    ) {
+    private record ImportRow(
+            Long id,
+            User user
+    ) {}
 
-        User user = new User();
-
-        user.setFirstName(record.get("firstName"));
-        user.setLastName(record.get("lastName"));
-        user.setPhone(record.get("phone"));
-        user.setEmail(record.get("email"));
-        user.setDriverLicense(record.get("driverLicense"));
-
-        String status = record.get("status").trim();
-
-        if (!status.isEmpty()) {
-            try {
-                user.setStatus(
-                        UserStatus.valueOf(
-                                status.toUpperCase(Locale.ROOT)
-                        )
-                );
-
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(
-                        "Неизвестный статус: " + status
-                );
-            }
-        }
-
-        return user;
-    }
-
-    // Проверка повторений внутри CSV
-    private void checkDuplicate(
-            Set<String> values,
-            String value,
-            String field,
-            long row
-    ) {
-
-        if (!value.isEmpty() && !values.add(value)) {
-            throw new IllegalArgumentException(
-                    "Повторяется " + field + " — " + value
-            );
-        }
-    }
-
-    // Формирование ответа предварительной проверки
-    private Map<String, Object> validationResult(
+    private record ImportPlan(
             int totalRows,
-            int validRows,
+            List<ImportRow> rows,
             List<String> errors
-    ) {
-
-        return Map.of(
-                "valid", errors.isEmpty(),
-                "totalRows", totalRows,
-                "validRows", validRows,
-                "errors", errors
-        );
-    }
+    ) {}
 }

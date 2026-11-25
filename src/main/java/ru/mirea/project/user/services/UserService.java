@@ -1,5 +1,5 @@
 package ru.mirea.project.user.services;
-
+import ru.mirea.project.user.dto.UserAnalyticsResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -190,9 +190,8 @@ public class UserService {
         return userRepository.save(user);
     }
 
+    public User validateForUpdate(Long id, User data) {
 
-    @Transactional
-    public User updateUser(Long id, User data) {
         User user = getUserById(id);
 
         if (data == null) {
@@ -226,6 +225,14 @@ public class UserService {
             );
         }
 
+        return user;
+    }
+
+    @Transactional
+    public User updateUser(Long id, User data) {
+
+        User user = validateForUpdate(id, data);
+
         user.setFirstName(data.getFirstName());
         user.setLastName(data.getLastName());
         user.setPhone(data.getPhone());
@@ -235,6 +242,7 @@ public class UserService {
 
         return userRepository.save(user);
     }
+
 
     @Transactional
     public User archiveUser(Long id) {
@@ -248,6 +256,49 @@ public class UserService {
         User user = getUserById(id);
         user.setArchived(false);
         return userRepository.save(user);
+    }
+
+    public UserAnalyticsResponse getAnalytics() {
+
+        long total = userRepository.count();
+        long active = userRepository.countByArchivedFalse();
+        long archived = userRepository.countByArchivedTrue();
+
+        long regular = userRepository
+                .countByStatusAndArchivedFalse(UserStatus.REGULAR);
+
+        long vip = userRepository
+                .countByStatusAndArchivedFalse(UserStatus.VIP);
+
+        double vipPercentage = active == 0
+                ? 0
+                : (double) vip / active * 100;
+
+        long usersWithRequests =
+                userRepository.countUsersWithRequests();
+
+        long usersWithoutRequests =
+                active - usersWithRequests;
+
+        long totalRequests =
+                userRepository.countUserRequests();
+
+        double averageRequestsPerUser = active == 0
+                ? 0
+                : (double) totalRequests / active;
+
+        return new UserAnalyticsResponse(
+                total,
+                active,
+                archived,
+                regular,
+                vip,
+                vipPercentage,
+                usersWithRequests,
+                usersWithoutRequests,
+                totalRequests,
+                averageRequestsPerUser
+        );
     }
 
     @Transactional
