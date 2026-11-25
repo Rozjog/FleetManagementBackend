@@ -2,7 +2,10 @@ package ru.mirea.project.user.services;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.mirea.project.user.dto.UserBulkRequest;
+import ru.mirea.project.user.dto.UserBulkResponse;
 import ru.mirea.project.user.dto.UserBulkStatusRequest;
+import ru.mirea.project.user.enums.UserStatus;
 import ru.mirea.project.user.models.User;
 import ru.mirea.project.user.repositories.UserRepository;
 
@@ -11,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.function.Consumer;
 
 @Service
 public class UserBulkService {
@@ -22,10 +26,37 @@ public class UserBulkService {
     }
 
     @Transactional
-    public int changeStatus(UserBulkStatusRequest request) {
+    public UserBulkResponse changeStatus(UserBulkStatusRequest request) {
+        return executeBulk(
+                request.userIds(),
+                request.status(),
+                user -> user.setStatus(request.status())
+        );
+    }
 
-        List<Long> ids = request.userIds();
+    @Transactional
+    public UserBulkResponse archiveUsers(UserBulkRequest request) {
+        return executeBulk(
+                request.userIds(),
+                null,
+                user -> user.setArchived(true)
+        );
+    }
 
+    @Transactional
+    public UserBulkResponse restoreUsers(UserBulkRequest request) {
+        return executeBulk(
+                request.userIds(),
+                null,
+                user -> user.setArchived(false)
+        );
+    }
+
+    private UserBulkResponse executeBulk(
+            List<Long> ids,
+            UserStatus status,
+            Consumer<User> operation
+    ) {
         Set<Long> uniqueIds = new LinkedHashSet<>(ids);
 
         if (uniqueIds.size() != ids.size()) {
@@ -53,11 +84,15 @@ public class UserBulkService {
         }
 
         for (User user : users) {
-            user.setStatus(request.status());
+            operation.accept(user);
         }
 
         userRepository.saveAll(users);
 
-        return users.size();
+        return new UserBulkResponse(
+                users.size(),
+                status,
+                List.copyOf(uniqueIds)
+        );
     }
 }

@@ -26,6 +26,7 @@ public class UserCsvExportService {
 
         CSVFormat format = CSVFormat.DEFAULT.builder()
                 .setHeader(
+                        "id",
                         "firstName",
                         "lastName",
                         "phone",
@@ -55,6 +56,7 @@ public class UserCsvExportService {
                 for (User user : result.getContent()) {
 
                     printer.printRecord(
+                            user.getId(),
                             user.getFirstName(),
                             user.getLastName(),
                             user.getPhone(),
