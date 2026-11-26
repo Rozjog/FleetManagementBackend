@@ -1,8 +1,10 @@
 package ru.mirea.project.common.exceptions;
 
 import jakarta.servlet.http.HttpServletRequest;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +14,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
 import ru.mirea.project.car.exceptions.DuplicateLicensePlateException;
+import ru.mirea.project.auth.exceptions.TooManyLoginAttemptsException;
 
 import java.time.LocalDateTime;
 import java.util.NoSuchElementException;
@@ -135,6 +139,31 @@ public class GlobalExceptionHandler {
                 exception.getMessage(),
                 request
         );
+    }
+
+    @ExceptionHandler(TooManyLoginAttemptsException.class)
+    public ResponseEntity<ApiError> handleTooManyAttempts(
+            TooManyLoginAttemptsException exception,
+            HttpServletRequest request
+    ) {
+
+        ApiError error = new ApiError(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI(),
+                LocalDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(
+                        "Retry-After",
+                        String.valueOf(
+                                exception.getRetryAfterSeconds()
+                        )
+                )
+                .body(error);
     }
 
     private ResponseEntity<ApiError> buildError(

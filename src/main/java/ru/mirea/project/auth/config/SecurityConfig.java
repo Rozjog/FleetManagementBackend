@@ -18,6 +18,7 @@ import org.springframework.security.web.SecurityFilterChain;
 
 import ru.mirea.project.account.models.UserAccount;
 import ru.mirea.project.account.repositories.UserAccountRepository;
+import ru.mirea.project.auth.exceptions.SecurityErrorHandler;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,7 +30,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            UserAccountRepository repository
+            UserAccountRepository repository,
+            SecurityErrorHandler securityErrorHandler
     ) throws Exception {
 
         http
@@ -38,9 +40,14 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
 
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(
-                                SessionCreationPolicy.STATELESS
+                .exceptionHandling(exception -> exception
+
+                        .authenticationEntryPoint(
+                                securityErrorHandler::handleUnauthorized
+                        )
+
+                        .accessDeniedHandler(
+                                securityErrorHandler::handleForbidden
                         )
                 )
 
@@ -84,11 +91,21 @@ public class SecurityConfig {
                         .anyRequest().denyAll()
                 )
 
-                .oauth2ResourceServer(oauth -> oauth.jwt(jwt ->
-                        jwt.jwtAuthenticationConverter(
-                                token -> convertJwt(token, repository)
+                .oauth2ResourceServer(oauth -> oauth
+
+                        .authenticationEntryPoint(
+                                securityErrorHandler::handleUnauthorized
                         )
-                ));
+
+                        .accessDeniedHandler(
+                                securityErrorHandler::handleForbidden
+                        )
+
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(
+                                token -> convertJwt(token, repository)
+                        ))
+                );
+
 
         return http.build();
     }
