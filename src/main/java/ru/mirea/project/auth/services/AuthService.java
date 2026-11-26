@@ -22,22 +22,24 @@ public class AuthService {
     private final JwtService jwtService;
     private final RefreshSessionService refreshSessionService;
     private final String dummyHash;
+    private final LoginAttemptService loginAttemptService;
 
     public AuthService(
             UserAccountRepository repository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
-            RefreshSessionService refreshSessionService
+            RefreshSessionService refreshSessionService,
+            LoginAttemptService loginAttemptService
     ) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshSessionService = refreshSessionService;
+        this.loginAttemptService = loginAttemptService;
         this.dummyHash = passwordEncoder.encode(
                 UUID.randomUUID().toString()
         );
     }
-
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
@@ -45,11 +47,16 @@ public class AuthService {
         String email = request.email().trim()
                 .toLowerCase(Locale.ROOT);
 
+        loginAttemptService.checkBlocked(email);
+
         UserAccount account = repository.findByEmail(email)
                 .orElse(null);
 
         if (request.password()
                 .getBytes(StandardCharsets.UTF_8).length > 72) {
+
+            loginAttemptService.registerFailure(email);
+
             throw new BadCredentialsException(
                     "Неверный email или пароль."
             );
@@ -68,6 +75,8 @@ public class AuthService {
                 !correctPassword ||
                 !account.isActive()) {
 
+            loginAttemptService.registerFailure(email);
+
             throw new BadCredentialsException(
                     "Неверный email или пароль."
             );
@@ -81,15 +90,18 @@ public class AuthService {
             );
         }
 
-        return new LoginResponse(
+        LoginResponse response = new LoginResponse(
                 jwtService.generateAccessToken(account),
                 refreshToken,
                 "Bearer",
                 jwtService.getExpiresIn(),
                 AccountResponse.from(account)
         );
-    }
 
+        loginAttemptService.registerSuccess(email);
+
+        return response;
+    }
 
     public AccountResponse getCurrentAccount(UUID id) {
 

@@ -1,6 +1,9 @@
 package ru.mirea.project.account.repositories;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+
 import ru.mirea.project.account.models.UserAccount;
 
 import java.util.Optional;
@@ -12,4 +15,14 @@ public interface UserAccountRepository
     Optional<UserAccount> findByEmail(String email);
 
     boolean existsByEmail(String email);
+
+    boolean existsByEmailAndIdNot(String email, UUID id);
+
+    Page<UserAccount>
+    findByFirstNameContainingIgnoreCaseOrLastNameContainingIgnoreCaseOrEmailContainingIgnoreCase(
+            String firstName,
+            String lastName,
+            String email,
+            Pageable pageable
+    );
 }
